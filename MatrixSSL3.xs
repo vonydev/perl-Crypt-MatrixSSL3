@@ -1992,16 +1992,20 @@ int sess_received_data(ssl, inBuf, ptBuf)
         croak("matrixSslGetReadbuf returns %d", readbufsz);
     }
 
-    buf = (unsigned char *) SvPV(inBuf, inbufsz);
-    if((STRLEN) readbufsz > inbufsz)
-        readbufsz = inbufsz;
-    memcpy(readbuf, buf, readbufsz);
-    /* remove from the input whatever got processed */
-    sv_setpvn_mg(inBuf, (const char *) buf+readbufsz,  inbufsz-readbufsz);
-    buf = NULL;
+    if (readbufsz == 0) {
+        RETVAL = MATRIXSSL_ZERO_BUFFER;
+    } else {
+        buf = (unsigned char *) SvPV(inBuf, inbufsz);
+        if((STRLEN) readbufsz > inbufsz)
+            readbufsz = inbufsz;
+        memcpy(readbuf, buf, readbufsz);
+        /* remove from the input whatever got processed */
+        sv_setpvn_mg(inBuf, (const char *) buf+readbufsz,  inbufsz-readbufsz);
+        buf = NULL;
 
-    RETVAL = matrixSslReceivedData((ssl_t *)ssl, readbufsz, &buf, (uint32 *) &bufsz);
-    sv_setpvn_mg(ptBuf, (const char *) buf, (buf==NULL ? 0 : bufsz));
+        RETVAL = matrixSslReceivedData((ssl_t *)ssl, readbufsz, &buf, (uint32 *) &bufsz);
+        sv_setpvn_mg(ptBuf, (const char *) buf, (buf==NULL ? 0 : bufsz));
+    }
 
     OUTPUT:
     RETVAL

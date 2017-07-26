@@ -125,3 +125,16 @@ index f1a725e..afb537f 100644
 +            //goto PKCS8_FAIL;
          }
      }
+
+diff --git a/matrixssl/matrixsslApi.h b/matrixssl/matrixsslApi.h
+index 2d9fc17..a3dbdf0 100644
+--- a/matrixssl/matrixsslApi.h
++++ b/matrixssl/matrixsslApi.h
+@@ -72,6 +72,7 @@ extern "C" {
+ # define MATRIXSSL_HANDSHAKE_COMPLETE    5            /* Handshake completed */
+ # define MATRIXSSL_RECEIVED_ALERT    6                /* An alert was received */
+ # define MATRIXSSL_APP_DATA_COMPRESSED   7            /* App data must be inflated */
++# define MATRIXSSL_ZERO_BUFFER       8                /* matrixSslGetReadbuf returned a zero lengh buffer */
+
+ /******************************************************************************/
+ /*
