@@ -1472,6 +1472,8 @@ SV *get_SSL_secrets(ssl)
     my_hv_store(rh, "cipher_ivSize", newSViv(cipher->ivSize), 0);
     my_hv_store(rh, "cipher_blockSize", newSViv(cipher->blockSize), 0);
 
+    my_hv_store(rh, "sessionId", newSVpvn(ssl->sessionId, ssl->sessionIdLen), 0);
+
     my_hv_store(rh, "clientRandom", newSVpvn(sec->clientRandom, SSL_HS_RANDOM_SIZE), 0);
     my_hv_store(rh, "serverRandom", newSVpvn(sec->serverRandom, SSL_HS_RANDOM_SIZE), 0);
     my_hv_store(rh, "masterSecret", newSVpvn(sec->masterSecret, SSL_HS_MASTER_SIZE), 0);
