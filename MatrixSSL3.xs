@@ -213,15 +213,12 @@ int32 appCertValidator(ssl_t *ssl, psX509Cert_t *certInfo, int32 alert) {
         if (certInfo->subject.state != NULL)
             my_hv_store(subject, "state",
                 newSVpv(certInfo->subject.state, 0), 0);
-        if (certInfo->subject.locality != NULL)
-            my_hv_store(subject, "locality",
-                newSVpv(certInfo->subject.locality, 0), 0);
         if (certInfo->subject.organization != NULL)
             my_hv_store(subject, "organization",
                 newSVpv(certInfo->subject.organization, 0), 0);
         if (certInfo->subject.orgUnit != NULL)
             my_hv_store(subject, "orgUnit",
-                newSVpv(certInfo->subject.orgUnit, 0), 0);
+                newSVpv(certInfo->subject.orgUnit->name, 0), 0);
         if (certInfo->subject.commonName != NULL)
             my_hv_store(subject, "commonName",
                 newSVpv(certInfo->subject.commonName, 0), 0);
@@ -233,15 +230,12 @@ int32 appCertValidator(ssl_t *ssl, psX509Cert_t *certInfo, int32 alert) {
         if (certInfo->issuer.state != NULL)
             my_hv_store(issuer, "state",
                 newSVpv(certInfo->issuer.state, 0), 0);
-        if (certInfo->issuer.locality != NULL)
-            my_hv_store(issuer, "locality",
-                newSVpv(certInfo->issuer.locality, 0), 0);
         if (certInfo->issuer.organization != NULL)
             my_hv_store(issuer, "organization",
                 newSVpv(certInfo->issuer.organization, 0), 0);
         if (certInfo->issuer.orgUnit != NULL)
             my_hv_store(issuer, "orgUnit",
-                newSVpv(certInfo->issuer.orgUnit, 0), 0);
+                newSVpv(certInfo->issuer.orgUnit->name, 0), 0);
         if (certInfo->issuer.commonName != NULL)
             my_hv_store(issuer, "commonName",
                 newSVpv(certInfo->issuer.commonName, 0), 0);
@@ -1063,7 +1057,7 @@ unsigned int capabilities()
 #ifdef USE_ALPN
     RETVAL |= ALPN_ENABLED;
 #endif
-#ifdef USE_OCSP
+#ifdef USE_OCSP_RESPONSE
     RETVAL |= OCSP_STAPLES_ENABLED;
 #endif
 #ifdef USE_SCT

@@ -3,11 +3,11 @@
 
 # NAME
 
-Crypt::MatrixSSL3 - Perl extension for SSL and TLS using MatrixSSL.org v3.7.2b
+Crypt::MatrixSSL3 - Perl extension for SSL and TLS using MatrixSSL.org 3.9.5
 
 # VERSION
 
-This document describes Crypt::MatrixSSL3 version v3.8.1
+This document describes Crypt::MatrixSSL3 version 3.9.5
 
 # SYNOPSIS
 
