@@ -186,6 +186,17 @@ my @cOptions = (
     # only later versions of the protocol are desired
     #'DISABLE_TLS_1_1',
 
+    # Allow the server to parse SSL 2.0 ClientHello messages even when the
+    # server does not actually support SSL 2.0. As per RFC 5246, E.2:
+    # "... even TLS servers that do not support SSL 2.0 MAY accept version
+    # 2.0 CLIENT-HELLO messages."
+    'ALLOW_SSLV2_CLIENT_HELLO_PARSE',
+
+    # @security SHA-1 based signatures are insecure, as SHA-1 can no longer
+    # be considered collision resistant (https://shattered.it/static/shattered.pdf).
+    # Enable if compatibility with old certificates is required.
+    'ENABLE_SHA1_SIGNED_CERTS',
+
     # matrixsslConfig.h - Applicable to servers only. The size of the
     # session resumption table for caching session identifiers. Old entries
     # will be overwritten when size is reached
@@ -215,7 +226,7 @@ my @cOptions = (
     'REQUIRE_SECURE_REHANDSHAKES',
 
     # matrixsslConfig.h - Enable certificate status handling
-    'USE_OCSP',
+    'USE_OCSP_RESPONSE',
 
     # matrixSslConfig.h - Enable certificate transparency handling
     'USE_SCT',
@@ -254,6 +265,8 @@ my @cOptions = (
     # handshake if client does not provide a certificate
     'SERVER_WILL_ACCEPT_EMPTY_CLIENT_CERT_MSG',
 
+    'ALLOW_CA_BUNDLE_PARTIAL_PARSE',
+
     # matrixsslConfig.h - Enable the TLS compression extension negotiation
     #'USE_ZLIB_COMPRESSION',
 
@@ -287,6 +300,7 @@ my @cOptions = (
 
     # cryptoConfig.h - use multi-threading
     #'USE_MULTITHREADING',
+    'NO_MULTITHREADING',
 
     # cryptoConfig.h - use shared memory session cache
     #'USE_SHARED_SESSION_CACHE',
@@ -329,7 +343,12 @@ my @cOptions = (
     ($^O =~ /Win32/ms ? '_USRDLL' : ()),
 
     # not used anywhere - fails to compile because missing includes
-    'NO_ASN_FORMAT_OID',
+    #'NO_ASN_FORMAT_OID',
+
+    # @security Do not cache Ephemeral ECC keys as it is against some standards,
+    # including NIST SP 800-56A, when in FIPS 140-2 mode of operation.
+    # we should do it but it slows us down considerably
+    #'NO_ECC_EPHEMERAL_CACHE',
 );
 
 # Compute the compiler definitions string
@@ -346,9 +365,10 @@ foreach my $d (@cOptions) {
 
 # Prepare for matrixSSL compilation
 my $os_src = ($^O =~ /Win32/ms) ? 'core/WIN32' : 'core/POSIX';
+my $os_exclude = ($^O =~ /Win32/ms) ? 'core/POSIX/osdep' : 'core/WIN32/osdep';
 my $o = $Config{obj_ext};
 my $c = '.c';
-my $mxbase = 'inc/matrixssl-3-9-3-open';
+my $mxbase = 'inc/matrixssl-3-9-5-open';
 my $mxfiles = "$mxbase.files";
 my $mxmodfiles = 'modfiles';
 
@@ -364,7 +384,7 @@ if (!-d $mxbase) {
 
 # Apply cumulative patch, if any
 use File::Which;
-if (-d 'inc/patches') {
+if ((-d 'inc/patches') && !(-f "$mxbase/.patched")) {
     if (which('patch')) {
         use Cwd;
         my $wd = getcwd();
@@ -380,6 +400,7 @@ if (-d 'inc/patches') {
             close $f;
         }
         chdir $wd or die "chdir($wd): $!";
+        open(F, ">$mxbase/.patched"); close(F);
     }
     else {
         my $pp = prompt "It looks like the patch tool is not installed on your system!\n" .
@@ -422,7 +443,15 @@ if (!-r $mxfiles) {
 open my $files, '<', $mxfiles or die "open: $!";
 chomp(my @files = <$files>);
 close $files or die "close: $!";
-s{core/POSIX|core/WIN32}{$os_src}ms for @files;
+#s{core/POSIX|core/WIN32}{$os_src}ms for @files;
+# exclude files for other platforms
+for (my $i = 0; $i < @files; $i++) {
+    if ($files[$i] =~ /$os_exclude/) {
+        print "Excluding file $files[$i] from build\n";
+        splice(@files, $i, 1);
+        $i -= 1;
+    }
+}
 # These are all the object files we need for our release
 my $mxobjs  = join q{ }, map { $_.$o } @files;
 
