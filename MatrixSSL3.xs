@@ -1189,7 +1189,7 @@ int keys_load_pkcs12(keys, p12File, importPass, macPass, flags)
     STRLEN macPassLen  = 0;
 
     CODE:
-    importPassBuf= SvOK(importPass) ? (unsigned char *) SvPV(importPass, importPassLen) : NULL;
+    importPassBuf = SvOK(importPass) ? (unsigned char *) SvPV(importPass, importPassLen) : NULL;
     macPassBuf = SvOK(macPass) ? (unsigned char *) SvPV(macPass, macPassLen) : NULL;
 
     RETVAL = matrixSslLoadPkcs12((sslKeys_t *)keys, (unsigned char *) p12File, importPassBuf, importPassLen,
@@ -1224,6 +1224,20 @@ int keys_load_DH_params(keys, paramsFile)
 
     CODE:
     RETVAL = (int) matrixSslLoadDhParams((sslKeys_t *)keys, paramsFile);
+
+    OUTPUT:
+    RETVAL
+
+
+int keys_load_DH_params_mem(keys, dhBin)
+    Crypt_MatrixSSL3_Keys *keys;
+    SV *dhBin;
+    unsigned char *dhBinBuf = NULL;
+    STRLEN dhBinBufLen = 0;
+
+    CODE:
+    dhBinBuf = SvOK(dhBin) ? (unsigned char *) SvPV(dhBin, dhBinBufLen) : NULL;
+    RETVAL = (int) matrixSslLoadDhParamsMem((sslKeys_t *)keys, dhBinBuf, dhBinBufLen);
 
     OUTPUT:
     RETVAL
@@ -1485,10 +1499,12 @@ SV *get_SSL_secrets(ssl)
     OUTPUT:
     RETVAL
 
-int sess_init_SNI(ssl, server_index, sni_data = NULL)
+int sess_init_SNI(ssl, server_index, sni_data = NULL, memkeys_sv = NULL)
     Crypt_MatrixSSL3_Sess *ssl;
     int server_index = SvOK(ST(1)) ? SvIV(ST(1)) : -1;
     SV *sni_data;
+    SV *memkeys_sv;
+    int memkeys = 0;
     AV *sni_array = NULL;
     SV *sd_sv = NULL;
     HV *sd = NULL;
@@ -1501,10 +1517,13 @@ int sess_init_SNI(ssl, server_index, sni_data = NULL)
     unsigned char *item = NULL;
     SV *cert_sv = NULL;
     unsigned char *cert = NULL;
+    STRLEN certLen = 0;
     SV *key_sv = NULL;
     unsigned char *key = NULL;
+    STRLEN keyLen = 0;
     SV *trustedCA_sv = NULL;
     unsigned char *trustedCA = NULL;
+    STRLEN trustedCALen = 0;
     STRLEN item_len = 0;
     int32 rc = PS_SUCCESS, i = 0, j = 0, res = 0;
     p_SSL_data ssl_data = NULL;
@@ -1539,6 +1558,9 @@ int sess_init_SNI(ssl, server_index, sni_data = NULL)
     /* initialize SNI server structure */
     if (!(SvROK(sni_data) && SvTYPE(SvRV(sni_data)) == SVt_PVAV))
         croak("Expected SNI data to be an array reference");
+
+    /* key/cert/DH params from memroy? */
+    memkeys = (memkeys_sv != NULL) && SvOK(memkeys_sv) ? SvIV(memkeys_sv) : 0;
 
     /* our array of arrays */
     sni_array = (AV *) SvRV(sni_data);
@@ -1602,15 +1624,19 @@ int sess_init_SNI(ssl, server_index, sni_data = NULL)
                 trustedCA_sv = *hv_fetch(sd, "trustCA", strlen("trustCA"), 0);
 
                 if (SvOK(trustedCA_sv)) {
-                    trustedCA = (unsigned char *) SvPV_nolen(trustedCA_sv);
+                    trustedCA = (unsigned char *) SvPV(trustedCA_sv, trustedCALen);
                 }
             }
 
             if (SvOK(cert_sv) && SvOK(key_sv)) {
-                cert = (unsigned char *) SvPV_nolen(cert_sv);
-                key = (unsigned char *) SvPV_nolen(key_sv);
+                cert = (unsigned char *) SvPV(cert_sv, certLen);
+                key = (unsigned char *) SvPV(key_sv, keyLen);
 #ifdef MATRIX_DEBUG
-                warn("  SNI entry %d cert %s; key %s", i, cert, key);
+                if (memkeys) {
+                    warn("  SNI entry %d cert %d; key %d", i, certLen, keyLen);
+                } else {
+                    warn("  SNI entry %d cert %s; key %s", i, cert, key);
+                }
 #endif
                 add_obj();
                 rc = matrixSslNewKeys(&(ss->SNI_entries[i]->keys), NULL);
@@ -1619,7 +1645,12 @@ int sess_init_SNI(ssl, server_index, sni_data = NULL)
                     croak("SNI matrixSslNewKeys failed %d", rc);
                 }
 
-                rc = matrixSslLoadRsaKeys(ss->SNI_entries[i]->keys, cert, key, NULL, trustedCA);
+                if (memkeys) {
+                    rc = matrixSslLoadRsaKeysMem(ss->SNI_entries[i]->keys, cert, certLen, key, keyLen, trustedCA, trustedCALen);
+                } else {
+                    rc = matrixSslLoadRsaKeys(ss->SNI_entries[i]->keys, cert, key, NULL, trustedCA);
+                }
+
                 if (rc != PS_SUCCESS)
                     croak("SNI matrixSslLoadRsaKeys failed %d; %s; %s", rc, cert, key);
             } else
@@ -1654,11 +1685,20 @@ int sess_init_SNI(ssl, server_index, sni_data = NULL)
             if (!SvOK(item_sv))
                 croak("undef DH param in SNI entry %d", i);
 
-            item = (unsigned char *) SvPV_nolen(item_sv);
+            item = (unsigned char *) SvPV(item_sv, item_len);
 #ifdef MATRIX_DEBUG
-            warn("  SNI entry %d DH param %s", i, item);
+            if (memkeys) {
+                warn("  SNI entry %d DH param %d", i, item_len);
+            } else {
+                warn("  SNI entry %d DH param %s", i, item);
+            }
 #endif
-            rc = matrixSslLoadDhParams(ss->SNI_entries[i]->keys, item);
+            if (memkeys) {
+                rc = matrixSslLoadDhParamsMem(ss->SNI_entries[i]->keys, item, item_len);
+            } else {
+                rc = matrixSslLoadDhParams(ss->SNI_entries[i]->keys, item);
+            }
+
             if (rc != PS_SUCCESS)
                 croak("SNI matrixSslLoadDhParams failed %d; %s", rc, item);
         }
