@@ -1341,7 +1341,7 @@ void sessid_clear(sessionId)
 MODULE = Crypt::MatrixSSL3  PACKAGE = Crypt::MatrixSSL3::SessPtr    PREFIX = sess_
 
 
-Crypt_MatrixSSL3_Sess *sess_new_client(keys, sessionId, cipherSuites, certValidator, expectedName, extensions, extensionCback, ssl_opts)
+Crypt_MatrixSSL3_Sess *sess_new_client(keys, sessionId = NULL, cipherSuites = NULL, certValidator = NULL, expectedName = NULL, extensions = NULL, extensionCback = NULL, ssl_opts = NULL)
     Crypt_MatrixSSL3_Keys *keys;
     Crypt_MatrixSSL3_SessID *sessionId;
     SV *cipherSuites;
@@ -1362,7 +1362,7 @@ Crypt_MatrixSSL3_Sess *sess_new_client(keys, sessionId, cipherSuites, certValida
     HV *sohv;
 
     INIT:
-    if (SvROK(cipherSuites) && SvTYPE(SvRV(cipherSuites)) == SVt_PVAV) {
+    if (cipherSuites && SvOK(cipherSuites) && SvROK(cipherSuites) && SvTYPE(SvRV(cipherSuites)) == SVt_PVAV) {
         cipherSuitesArray = (AV *) SvRV(cipherSuites);
 
         cipherCount = (uint16) av_len(cipherSuitesArray) + 1;
@@ -1375,13 +1375,13 @@ Crypt_MatrixSSL3_Sess *sess_new_client(keys, sessionId, cipherSuites, certValida
             item = av_fetch(cipherSuitesArray, i, 0);
             cipherSuitesBuf[i] = (uint32) SvIV(*item);
         }
-    } else if (SvOK(cipherSuites)) {
+    } else if (cipherSuites && SvOK(cipherSuites)) {
         croak("cipherSuites should be undef or ARRAYREF");
     }
 
     memset((void *) &sslOpts, 0, sizeof(sslSessOpts_t));
 
-    if (SvROK(ssl_opts) && (SvTYPE(SvRV(ssl_opts)) == SVt_PVHV)) {
+    if (ssl_opts && SvOK(ssl_opts) && SvROK(ssl_opts) && (SvTYPE(SvRV(ssl_opts)) == SVt_PVHV)) {
         sohv = (HV *) SvRV(ssl_opts);
 
         if ((item = hv_fetch(sohv, "ticketResumption", 16, 0)) && *item && SvOK(*item)) {
@@ -1422,10 +1422,10 @@ Crypt_MatrixSSL3_Sess *sess_new_client(keys, sessionId, cipherSuites, certValida
 
     rc = matrixSslNewClientSession(&ssl,
             (sslKeys_t *) keys, (sslSessionId_t *) sessionId, cipherSuitesBuf, cipherCount,
-            (SvOK(certValidator) ? appCertValidator : NULL),
-            (SvOK(expectedName) ? (const char *) SvPV_nolen(expectedName) : NULL),
+            (certValidator && SvOK(certValidator) ? appCertValidator : NULL),
+            (expectedName && SvOK(expectedName) ? (const char *) SvPV_nolen(expectedName) : NULL),
             (tlsExtension_t *) extensions,
-            (SvOK(extensionCback) ? appExtensionCback : NULL),
+            (extensionCback && SvOK(extensionCback) ? appExtensionCback : NULL),
             &sslOpts);
 
     if (rc != MATRIXSSL_REQUEST_SEND) {
@@ -1460,7 +1460,7 @@ Crypt_MatrixSSL3_Sess *sess_new_client(keys, sessionId, cipherSuites, certValida
     RETVAL
 
 
-Crypt_MatrixSSL3_Sess *sess_new_server(keys, certValidator, ssl_opts)
+Crypt_MatrixSSL3_Sess *sess_new_server(keys, certValidator = NULL, ssl_opts = NULL)
     Crypt_MatrixSSL3_Keys *keys;
     SV *certValidator;
     SV *ssl_opts;
@@ -1476,7 +1476,7 @@ Crypt_MatrixSSL3_Sess *sess_new_server(keys, certValidator, ssl_opts)
     INIT:
     memset((void *) &sslOpts, 0, sizeof(sslSessOpts_t));
 
-    if (SvROK(ssl_opts) && (SvTYPE(SvRV(ssl_opts)) == SVt_PVHV)) {
+    if (ssl_opts && SvOK(ssl_opts) && SvROK(ssl_opts) && (SvTYPE(SvRV(ssl_opts)) == SVt_PVHV)) {
         sohv = (HV *) SvRV(ssl_opts);
 
         if ((item = hv_fetch(sohv, "maxFragLen", 10, 0)) && *item && SvOK(*item)) {
@@ -1509,7 +1509,7 @@ Crypt_MatrixSSL3_Sess *sess_new_server(keys, certValidator, ssl_opts)
     sslOpts.userPtr = ssl_data;
 
     rc = matrixSslNewServerSession(&ssl, (sslKeys_t *)keys,
-            (SvOK(certValidator) ? appCertValidator : NULL),
+            (certValidator && SvOK(certValidator) ? appCertValidator : NULL),
             &sslOpts);
 #ifdef MATRIX_DEBUG
     warn("new server: ssl = %p, ssl_data = %p", ssl, ssl_data);
