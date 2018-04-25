@@ -189,6 +189,13 @@ int32 appCertValidator(ssl_t *ssl, psX509Cert_t *certInfo, int32 alert) {
     SV *callback;
     AV *certs;
     int res;
+    uint32_t ssl_id = 0;
+    p_SSL_data ssl_data;
+
+    if (ssl->userPtr) {
+        ssl_data = (p_SSL_data *) ssl->userPtr;
+        ssl_id = ssl_data->ssl_id;
+    }
 
     ENTER;
     SAVETMPS;
@@ -264,6 +271,7 @@ int32 appCertValidator(ssl_t *ssl, psX509Cert_t *certInfo, int32 alert) {
     PUSHMARK(SP);
     XPUSHs(sv_2mortal(newRV_inc((SV *)certs)));
     XPUSHs(sv_2mortal(newSViv(alert)));
+    XPUSHs(sv_2mortal(newSViv(ssl_id)));
     PUTBACK;
 
     res = call_sv(callback, G_EVAL|G_SCALAR);
@@ -438,7 +446,7 @@ void ALPNCallbackXS(void *ssl, short protoCount, char *proto[MAX_PROTO_EXT], int
                 FREETMPS;
                 LEAVE;
 
-                ssl_data->cbSNI_done;
+                ssl_data->cbSNI_done = 1;
             }
         } else {
             /* even if we didn't find a matching virtual host and we know the SSL connection
@@ -1333,7 +1341,7 @@ void sessid_clear(sessionId)
 MODULE = Crypt::MatrixSSL3  PACKAGE = Crypt::MatrixSSL3::SessPtr    PREFIX = sess_
 
 
-Crypt_MatrixSSL3_Sess *sess_new_client(keys, sessionId, cipherSuites, certValidator, expectedName, extensions, extensionCback)
+Crypt_MatrixSSL3_Sess *sess_new_client(keys, sessionId, cipherSuites, certValidator, expectedName, extensions, extensionCback, ssl_opts)
     Crypt_MatrixSSL3_Keys *keys;
     Crypt_MatrixSSL3_SessID *sessionId;
     SV *cipherSuites;
@@ -1341,15 +1349,17 @@ Crypt_MatrixSSL3_Sess *sess_new_client(keys, sessionId, cipherSuites, certValida
     SV *expectedName;
     Crypt_MatrixSSL3_HelloExt * extensions;
     SV *extensionCback;
+    SV *ssl_opts;
     ssl_t *ssl = NULL;
     SV *key = NULL;
     int rc = 0;
     uint8_t cipherCount = 0, i = 0;
-    AV *cipherSuitesArray = NULL;
-    SV **item = NULL;
 
     PREINIT:
-    uint16_t cipherSuitesBuf[64];
+    AV *cipherSuitesArray;
+    SV **item;
+    uint16_t *cipherSuitesBuf;
+    HV *sohv;
 
     INIT:
     if (SvROK(cipherSuites) && SvTYPE(SvRV(cipherSuites)) == SVt_PVAV) {
@@ -1359,6 +1369,8 @@ Crypt_MatrixSSL3_Sess *sess_new_client(keys, sessionId, cipherSuites, certValida
         if (cipherCount > 64)
             croak("cipherSuites should not contain more than 64 ciphers");
 
+        cipherSuitesBuf = malloc(cipherCount * sizeof(uint16_t));
+
         for (i = 0; i < cipherCount; i++) {
             item = av_fetch(cipherSuitesArray, i, 0);
             cipherSuitesBuf[i] = (uint32) SvIV(*item);
@@ -1367,10 +1379,46 @@ Crypt_MatrixSSL3_Sess *sess_new_client(keys, sessionId, cipherSuites, certValida
         croak("cipherSuites should be undef or ARRAYREF");
     }
 
+    memset((void *) &sslOpts, 0, sizeof(sslSessOpts_t));
+
+    if (SvROK(ssl_opts) && (SvTYPE(SvRV(ssl_opts)) == SVt_PVHV)) {
+        sohv = (HV *) SvRV(ssl_opts);
+
+        if ((item = hv_fetch(sohv, "ticketResumption", 16, 0)) && *item && SvOK(*item)) {
+            sslOpts.ticketResumption = (int16_t) SvIV(*item);
+        }
+
+        if ((item = hv_fetch(sohv, "maxFragLen", 10, 0)) && *item && SvOK(*item)) {
+            sslOpts.maxFragLen = (int16_t) SvIV(*item);
+        }
+
+        if ((item = hv_fetch(sohv, "truncHmac", 9, 0)) && *item && SvOK(*item)) {
+            sslOpts.truncHmac = (int16_t) SvIV(*item);
+        }
+
+        if ((item = hv_fetch(sohv, "extendedMasterSecret", 20, 0)) && *item && SvOK(*item)) {
+            sslOpts.extendedMasterSecret = (int16_t) SvIV(*item);
+        }
+
+        if ((item = hv_fetch(sohv, "trustedCAindication", 19, 0)) && *item && SvOK(*item)) {
+            sslOpts.trustedCAindication = (int16_t) SvIV(*item);
+        }
+
+        if ((item = hv_fetch(sohv, "OCSPstapling", 12, 0)) && *item && SvOK(*item)) {
+            sslOpts.OCSPstapling = (int16_t) SvIV(*item);
+        }
+
+        if ((item = hv_fetch(sohv, "ecFlags", 7, 0)) && *item && SvOK(*item)) {
+            sslOpts.ecFlags = (int32_t) SvIV(*item);
+        }
+
+        if ((item = hv_fetch(sohv, "versionFlag", 11, 0)) && *item && SvOK(*item)) {
+            sslOpts.versionFlag = (int32_t) SvIV(*item);
+        }
+    }
+
     CODE:
     add_obj();
-
-    memset((void *) &sslOpts, 0, sizeof(sslSessOpts_t));
 
     rc = matrixSslNewClientSession(&ssl,
             (sslKeys_t *) keys, (sslSessionId_t *) sessionId, cipherSuitesBuf, cipherCount,
@@ -1412,18 +1460,48 @@ Crypt_MatrixSSL3_Sess *sess_new_client(keys, sessionId, cipherSuites, certValida
     RETVAL
 
 
-Crypt_MatrixSSL3_Sess *sess_new_server(keys, certValidator)
+Crypt_MatrixSSL3_Sess *sess_new_server(keys, certValidator, ssl_opts)
     Crypt_MatrixSSL3_Keys *keys;
     SV *certValidator;
+    SV *ssl_opts;
     ssl_t *ssl = NULL;
     SV *key = NULL;
     int rc = 0;
     p_SSL_data ssl_data = NULL;
 
+    PREINIT:
+    HV *sohv;
+    SV **item;
+
+    INIT:
+    memset((void *) &sslOpts, 0, sizeof(sslSessOpts_t));
+
+    if (SvROK(ssl_opts) && (SvTYPE(SvRV(ssl_opts)) == SVt_PVHV)) {
+        sohv = (HV *) SvRV(ssl_opts);
+
+        if ((item = hv_fetch(sohv, "maxFragLen", 10, 0)) && *item && SvOK(*item)) {
+            sslOpts.maxFragLen = (int16_t) SvIV(*item);
+        }
+
+        if ((item = hv_fetch(sohv, "truncHmac", 9, 0)) && *item && SvOK(*item)) {
+            sslOpts.truncHmac = (int16_t) SvIV(*item);
+        }
+
+        if ((item = hv_fetch(sohv, "extendedMasterSecret", 20, 0)) && *item && SvOK(*item)) {
+            sslOpts.extendedMasterSecret = (int16_t) SvIV(*item);
+        }
+
+        if ((item = hv_fetch(sohv, "ecFlags", 7, 0)) && *item && SvOK(*item)) {
+            sslOpts.ecFlags = (int32_t) SvIV(*item);
+        }
+
+        if ((item = hv_fetch(sohv, "versionFlag", 11, 0)) && *item && SvOK(*item)) {
+            sslOpts.versionFlag = (int32_t) SvIV(*item);
+        }
+    }
+
     CODE:
     add_obj();
-
-    memset((void *) &sslOpts, 0, sizeof(sslSessOpts_t));
 
     ssl_data = malloc(SZ_SSL_DATA);
     memset(ssl_data, 0, SZ_SSL_DATA);
@@ -1965,7 +2043,9 @@ void sess_DESTROY(ssl)
     CODE:
     ENTER;
     SAVETMPS;
-
+#ifdef MATRIX_DEBUG
+    warn("session DESTROY %p", ssl);
+#endif
     /* delete callback from global hashes */
     key = sv_2mortal(newSViv(PTR2IV(ssl)));
     if(hv_exists_ent(certValidatorArg, key, 0))
@@ -1988,6 +2068,9 @@ int sess_get_outdata(ssl, outBuf)
 
     CODE:
     RETVAL = matrixSslGetOutdata((ssl_t *)ssl, &buf);
+#ifdef MATRIX_DEBUG
+    warn("sess_get_outdata RETVAL = %d", RETVAL);
+#endif
     if (RETVAL < 0)
         croak("matrixSslGetOutdata returns %d", RETVAL);
     /* append answer to the output */
@@ -2004,6 +2087,9 @@ int sess_sent_data(ssl, bytes)
 
     CODE:
     RETVAL = matrixSslSentData((ssl_t *)ssl, bytes);
+#ifdef MATRIX_DEBUG
+    warn("sess_sent_data RETVAL = %d", RETVAL);
+#endif
 
     OUTPUT:
     RETVAL
@@ -2021,6 +2107,9 @@ int sess_received_data(ssl, inBuf, ptBuf)
 
     CODE:
     readbufsz = matrixSslGetReadbuf((ssl_t *)ssl, &readbuf);
+#ifdef MATRIX_DEBUG
+    warn("sess_received_data readbufsz = %d", readbufsz);
+#endif
     if (readbufsz < 0) {
         /* 0 isn't an error, but shouldn't happens anyway */
         /* when readbufsz == 0 the matrixSslReceivedData call below acts like a polling machanism
@@ -2040,6 +2129,13 @@ int sess_received_data(ssl, inBuf, ptBuf)
         buf = NULL;
 
         RETVAL = matrixSslReceivedData((ssl_t *)ssl, readbufsz, &buf, (uint32 *) &bufsz);
+#ifdef MATRIX_DEBUG
+        if (buf == NULL) {
+            warn("Null buffer received");
+        } else {
+            warn("Received data length: %d", bufsz);
+        }
+#endif
         sv_setpvn_mg(ptBuf, (const char *) buf, (buf==NULL ? 0 : bufsz));
     }
 
@@ -2055,6 +2151,9 @@ int sess_false_start_received_data(ssl, ptBuf)
 
     CODE:
     RETVAL = matrixSslReceivedData((ssl_t *)ssl, 0, &buf, (uint32 *) &bufsz);
+#ifdef MATRIX_DEBUG
+    warn("sess_false_start_received_data RETVAL = %d", RETVAL);
+#endif
     if (RETVAL > 0) sv_setpvn_mg(ptBuf, (const char *) buf, (buf==NULL ? 0 : bufsz));
 
     OUTPUT:
@@ -2069,6 +2168,9 @@ int sess_processed_data(ssl, ptBuf)
 
     CODE:
     RETVAL = matrixSslProcessedData((ssl_t *)ssl, &buf, (uint32 *) &bufsz);
+#ifdef MATRIX_DEBUG
+    warn("sess_processed_data RETVAL = %d", RETVAL);
+#endif
     sv_setpvn_mg(ptBuf, (const char *) buf, (buf==NULL ? 0 : bufsz));
 
     OUTPUT:
@@ -2084,7 +2186,9 @@ int sess_encode_to_outdata(ssl, outBuf)
     CODE:
     buf = (unsigned char *) SvPV(outBuf, bufsz);
     RETVAL = matrixSslEncodeToOutdata((ssl_t *)ssl, buf, bufsz);
-
+#ifdef MATRIX_DEBUG
+    warn("sess_encode_to_outdata RETVAL = %d", RETVAL);
+#endif
     OUTPUT:
     RETVAL
 

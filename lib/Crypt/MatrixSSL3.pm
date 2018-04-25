@@ -1221,7 +1221,7 @@ When this object will be destroyed will call:
 
 =head2 certValidator
 
-Will be called with two scalar params: $certInfo and $alert
+Will be called with three scalar params: $certInfo, $alert and $ssl_id
 (unlike C callback which also have $ssl param).
 
 Param $certInfo instead of (psX509Cert_t *) will contain reference to
@@ -1255,6 +1255,9 @@ array with certificates. Each certificate will be hash in this format:
 This callback must return single scalar with integer value (as described in
 MatrixSSL documentation). If callback die(), then warning will be printed,
 and execution will continue assuming callback returned -1.
+
+Param $alert will contain matrixSSL certificate validation result.
+Param $ssl_id is the $ssl_id used in the $ssl->set_callbacks(...) call
 
 =head2 extensionCback
 
